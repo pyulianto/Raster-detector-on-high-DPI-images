@@ -5,8 +5,9 @@ using multi-scale template matching. All settings are hardcoded for fast testing
 """
 
 import io
+import json
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any, Optional
 
 import cv2
 import numpy as np
@@ -15,10 +16,178 @@ import streamlit as st
 
 
 # ------------------------------
-# Hardcoded settings (fixed mode)
+# Configuration System
 # ------------------------------
 APP_DIR = Path(__file__).parent.resolve()
 SCENE_PATH = APP_DIR / "MasterImage.png"
+REF_DIR = APP_DIR / "refs"
+
+def generate_default_config(ref_path: Path, img_array: np.ndarray) -> Dict[str, Any]:
+    """
+    Generate default configuration based on template properties.
+    Auto-detects horizontal/vertical from filename or dimensions.
+    """
+    h, w = img_array.shape[:2]
+    name = ref_path.stem
+    is_horiz = "horiz" in name.lower() or (w >= h)
+    
+    if is_horiz:
+        # Horizontal template (wide profile)
+        return {
+            "version": "1.0",
+            "template_name": name,
+            "description": f"Horizontal template {w}×{h}px (auto-generated)",
+            "detection": {
+                "similarity_threshold": 0.70,
+                "scale_mode": "range",
+                "scale_min": 0.80,
+                "scale_max": 1.20,
+                "target_width_min": 100.0,
+                "target_width_max": 400.0,
+                "scale_steps": 21,
+                "rotations": [0],
+                "max_peaks_per_pass": 10,
+                "global_max_detections": 150
+            },
+            "verification": {
+                "density_max": 0.03,
+                "template_edge_dt_max": 0.50,
+                "aspect_ratio_tolerance_log": 0.08,
+                "min_scale": None,
+                "vertical_tolerance_deg": None,
+                "border_margin_factor": 0.03,
+                "pad_ratio": 0.12
+            },
+            "nms": {
+                "iou_threshold": 0.85,
+                "cluster_iou": 0.85,
+                "top_k_after_nms": 15,
+                "suppress_w_factor": 1.0,
+                "suppress_h_factor": 1.0
+            },
+            "preprocessing": {
+                "canny_low": 30,
+                "canny_high": 120,
+                "gaussian_blur": 0,
+                "clahe_enabled": False,
+                "clahe_clip_limit": 2.0,
+                "clahe_grid_size": [8, 8]
+            },
+            "advanced": {
+                "profile": "horizontal",
+                "is_horizontal": True,
+                "scene_max_width": 0,
+                "distance_transform_type": "L2",
+                "interpolation_upscale": "CUBIC",
+                "interpolation_downscale": "AREA"
+            }
+        }
+    else:
+        # Vertical template (tall profile)
+        return {
+            "version": "1.0",
+            "template_name": name,
+            "description": f"Vertical template {w}×{h}px (auto-generated)",
+            "detection": {
+                "similarity_threshold": 0.52,
+                "scale_mode": "target_width",
+                "scale_min": 0.80,
+                "scale_max": 1.20,
+                "target_width_min": 38.0,
+                "target_width_max": 72.0,
+                "scale_steps": 21,
+                "rotations": [-5, 0, 5],
+                "max_peaks_per_pass": 12,
+                "global_max_detections": 150
+            },
+            "verification": {
+                "density_max": 1.0,
+                "template_edge_dt_max": 0.75,
+                "aspect_ratio_tolerance_log": 0.10,
+                "min_scale": 0.90,
+                "vertical_tolerance_deg": 7.0,
+                "border_margin_factor": 0.03,
+                "pad_ratio": 0.12
+            },
+            "nms": {
+                "iou_threshold": 0.97,
+                "cluster_iou": 0.85,
+                "top_k_after_nms": 15,
+                "suppress_w_factor": 0.6,
+                "suppress_h_factor": 0.5
+            },
+            "preprocessing": {
+                "canny_low": 30,
+                "canny_high": 120,
+                "gaussian_blur": 0,
+                "clahe_enabled": False,
+                "clahe_clip_limit": 2.0,
+                "clahe_grid_size": [8, 8]
+            },
+            "advanced": {
+                "profile": "tower",
+                "is_horizontal": False,
+                "scene_max_width": 0,
+                "distance_transform_type": "L2",
+                "interpolation_upscale": "CUBIC",
+                "interpolation_downscale": "AREA"
+            }
+        }
+
+def validate_config(config: Dict[str, Any]) -> bool:
+    """Validate that config has all required fields."""
+    required_sections = ["detection", "verification", "nms", "preprocessing", "advanced"]
+    for section in required_sections:
+        if section not in config:
+            raise ValueError(f"Missing required section: {section}")
+    
+    # Validate key parameters
+    det = config["detection"]
+    if "similarity_threshold" not in det or not (0 <= det["similarity_threshold"] <= 1):
+        raise ValueError("Invalid similarity_threshold (must be 0-1)")
+    if "scale_steps" not in det or det["scale_steps"] < 1:
+        raise ValueError("Invalid scale_steps (must be >= 1)")
+    
+    return True
+
+def load_or_create_config(ref_path: Path, img_array: np.ndarray) -> Optional[Dict[str, Any]]:
+    """
+    Load config from JSON file matching template name.
+    If not found, generate and save default config.
+    Returns None if config is invalid (with warning).
+    """
+    config_path = ref_path.with_suffix('.json')
+    
+    if config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            validate_config(config)
+            return config
+        except json.JSONDecodeError as e:
+            st.warning(f"⚠️ Invalid JSON in {config_path.name}: {e}. Skipping template.")
+            return None
+        except ValueError as e:
+            st.warning(f"⚠️ Config validation failed for {config_path.name}: {e}. Skipping template.")
+            return None
+        except Exception as e:
+            st.warning(f"⚠️ Error loading {config_path.name}: {e}. Skipping template.")
+            return None
+    else:
+        # Generate and save default config
+        config = generate_default_config(ref_path, img_array)
+        try:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2)
+            st.info(f"✨ Created default config: {config_path.name}")
+        except Exception as e:
+            st.warning(f"⚠️ Could not save default config {config_path.name}: {e}")
+        return config
+
+
+# ------------------------------
+# Legacy Constants (will be removed after full config system)
+# ------------------------------
 # Choose template by profile
 DEFAULT_TEMPLATE_PATH = APP_DIR / "ScrewSquare.png"
 TOWER_TEMPLATE_PATH = APP_DIR / "Tower.png"
@@ -78,6 +247,17 @@ def draw_detections(base_img: np.ndarray, detections: List[dict], color: tuple[i
         cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
         cv2.putText(out, f"{name} #{i}", (x1, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     return out
+
+def rotate_affine_bgr_mask(bgr: np.ndarray, mask: np.ndarray, angle_deg: float) -> tuple[np.ndarray, np.ndarray]:
+    """Rotate template and mask by angle within the same canvas size."""
+    h, w = bgr.shape[:2]
+    center = (w // 2, h // 2)
+    rot_m = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
+    img_r = cv2.warpAffine(bgr, rot_m, (w, h), flags=cv2.INTER_LINEAR,
+                           borderMode=cv2.BORDER_CONSTANT, borderValue=255)
+    mask_r = cv2.warpAffine(mask, rot_m, (w, h), flags=cv2.INTER_NEAREST,
+                            borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    return img_r, mask_r
 
 def resize_with_aspect_ratio(img: np.ndarray, target_width: int) -> Tuple[np.ndarray, float]:
     if target_width <= 0 or img.shape[1] <= target_width:
@@ -170,7 +350,7 @@ def nms_iou(boxes: np.ndarray, scores: np.ndarray, iou_thresh: float) -> List[in
     return keep
 
 
-def collect_peaks(result: np.ndarray, threshold: float, tmpl_w: int, tmpl_h: int, max_peaks: int) -> List[Tuple[int, int, float]]:
+def collect_peaks(result: np.ndarray, threshold: float, tmpl_w: int, tmpl_h: int, max_peaks: int, suppress_w: float = 1.0, suppress_h: float = 1.0) -> List[Tuple[int, int, float]]:
     """Greedy peak picking to avoid flood of points: repeatedly take global max and suppress its neighborhood."""
     peaks: List[Tuple[int, int, float]] = []
     res = result.copy()
@@ -180,8 +360,8 @@ def collect_peaks(result: np.ndarray, threshold: float, tmpl_w: int, tmpl_h: int
             break
         peaks.append((int(max_loc[0]), int(max_loc[1]), float(max_val)))
         # Suppress a window smaller than the template to allow neighboring instances
-        sw = max(1, int(round(tmpl_w * SUPPRESS_W_FACTOR)))
-        sh = max(1, int(round(tmpl_h * SUPPRESS_H_FACTOR)))
+        sw = max(1, int(round(tmpl_w * suppress_w)))
+        sh = max(1, int(round(tmpl_h * suppress_h)))
         x0 = max(0, max_loc[0] - sw // 2)
         y0 = max(0, max_loc[1] - sh // 2)
         x1 = min(res.shape[1], max_loc[0] + sw // 2)
@@ -190,24 +370,78 @@ def collect_peaks(result: np.ndarray, threshold: float, tmpl_w: int, tmpl_h: int
     return peaks
 
 
-def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_mask: np.ndarray, scales: List[float] | None = None) -> Tuple[np.ndarray, List[dict], dict]:
+def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_mask: np.ndarray, config: Dict[str, Any]) -> Tuple[np.ndarray, List[dict], dict]:
     """
     Distance-transform based edge matching with mask awareness.
     Returns: (annotated_full_res_image, detections) where detection is
     {x1,y1,x2,y2,score,scale,angle}
+    config: Per-template configuration dictionary with all detection/verification parameters
     """
+    # Extract config parameters
+    det_cfg = config["detection"]
+    ver_cfg = config["verification"]
+    nms_cfg = config["nms"]
+    prep_cfg = config["preprocessing"]
+    adv_cfg = config["advanced"]
+    
+    # Detection parameters
+    similarity_threshold = float(det_cfg["similarity_threshold"])
+    scale_mode = det_cfg.get("scale_mode", "range")
+    rotations = det_cfg["rotations"]
+    max_peaks_per_pass = int(det_cfg["max_peaks_per_pass"])
+    global_max_detections = int(det_cfg["global_max_detections"])
+    
+    # Compute scales based on mode
+    if scale_mode == "target_width":
+        tpl_w = max(1, template_img.shape[1])
+        tgt_min_w = float(det_cfg["target_width_min"])
+        tgt_max_w = float(det_cfg["target_width_max"])
+        lower_scale = max(0.03, tgt_min_w / float(tpl_w))
+        upper_scale = min(1.50, tgt_max_w / float(tpl_w))
+        scales = np.linspace(lower_scale, upper_scale, int(det_cfg["scale_steps"])).tolist()
+    else:  # "range"
+        scales = np.linspace(float(det_cfg["scale_min"]), float(det_cfg["scale_max"]), int(det_cfg["scale_steps"])).tolist()
+    
+    # Verification parameters
+    density_max = float(ver_cfg["density_max"])
+    template_edge_dt_max = float(ver_cfg["template_edge_dt_max"])
+    ar_tol_log = float(ver_cfg["aspect_ratio_tolerance_log"])
+    min_scale_tower = ver_cfg.get("min_scale")
+    if min_scale_tower is not None:
+        min_scale_tower = float(min_scale_tower)
+    vertical_tol_deg = ver_cfg.get("vertical_tolerance_deg")
+    if vertical_tol_deg is not None:
+        vertical_tol_deg = float(vertical_tol_deg)
+    border_margin_factor = float(ver_cfg.get("border_margin_factor", 0.03))
+    pad_ratio = float(ver_cfg.get("pad_ratio", 0.12))
+    
+    # NMS parameters
+    nms_iou_threshold = float(nms_cfg["iou_threshold"])
+    cluster_iou = float(nms_cfg["cluster_iou"])
+    top_k_after_nms = int(nms_cfg["top_k_after_nms"])
+    suppress_w_factor = float(nms_cfg["suppress_w_factor"])
+    suppress_h_factor = float(nms_cfg["suppress_h_factor"])
+    
+    # Preprocessing parameters
+    canny_low = int(prep_cfg["canny_low"])
+    canny_high = int(prep_cfg["canny_high"])
+    
+    # Advanced parameters
+    is_horizontal = bool(adv_cfg["is_horizontal"])
+    profile = adv_cfg.get("profile", "default")
+    scene_max_width = int(adv_cfg.get("scene_max_width", 0))
     # Previews are displayed separately; do processing copies here
     scene_full = scene_img.copy()
     # Resize scene and compute grayscale + edges + distance transform
-    scene_resized_color, s_scale = resize_with_aspect_ratio(scene_full, SCENE_MAX_WIDTH)
+    scene_resized_color, s_scale = resize_with_aspect_ratio(scene_full, scene_max_width)
     # Save the downscaled scene so it can be reviewed
     try:
         down_path = APP_DIR / "MasterImage.downscaled.png"
         cv2.imwrite(str(down_path), scene_resized_color)
     except Exception:
         pass
-    scene_gray = to_gray(apply_preprocessing(scene_resized_color))
-    scene_edges = cv2.Canny(scene_gray, 30, 120)
+    scene_gray = to_gray(scene_resized_color)  # No global preprocessing now
+    scene_edges = cv2.Canny(scene_gray, canny_low, canny_high)
     # Distance to nearest edge: invert so edges=0
     scene_dt = cv2.distanceTransform(255 - scene_edges, cv2.DIST_L2, 3).astype(np.float32)
 
@@ -215,22 +449,21 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
     debug_info["scene_shape"] = tuple(scene_full.shape[:2])
     debug_info["scene_downscaled_shape"] = tuple(scene_resized_color.shape[:2])
     debug_info["scale_factor"] = float(s_scale)
-    debug_info["rotations"] = ROTATIONS[:]
-    debug_info["scales"] = (scales if scales is not None else SCALES)[:]
+    debug_info["rotations"] = rotations[:]
+    debug_info["scales"] = scales[:]
     debug_info["template_shape"] = tuple(template_img.shape[:2])
     debug_info["template_mask_nonzero"] = int(cv2.countNonZero(template_mask))
     debug_info["passes"] = []
-    debug_info["profile"] = PROFILE
-    debug_info["suppress_factors"] = {"w": SUPPRESS_W_FACTOR, "h": SUPPRESS_H_FACTOR}
+    debug_info["profile"] = profile
+    debug_info["suppress_factors"] = {"w": suppress_w_factor, "h": suppress_h_factor}
 
     candidates: List[dict] = []
     # Track the single best response across all passes to use as a fallback
     best_fallback = None  # (score, x, y, tw, th, scale, angle)
-    scales_list = scales if scales is not None else SCALES
     # Define a border margin to avoid spurious border alignments
     H_full, W_full = scene_gray.shape[:2]
-    border_margin = max(6, int(round(0.03 * min(H_full, W_full))))
-    for angle in ROTATIONS:
+    border_margin = max(6, int(round(border_margin_factor * min(H_full, W_full))))
+    for angle in rotations:
         # Rotate template if needed (rare for black/white symbols)
         if angle != 0:
             (h, w) = template_img.shape[:2]
@@ -243,7 +476,7 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
             mask_rot = template_mask
 
         # Edge-based matching across scales
-        for scale in scales_list:
+        for scale in scales:
             tw = max(8, int(round(tpl_rot.shape[1] * scale)))
             th = max(8, int(round(tpl_rot.shape[0] * scale)))
             if tw >= scene_gray.shape[1] or th >= scene_gray.shape[0]:
@@ -253,8 +486,8 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
             if cv2.countNonZero(mask_s) < 10:
                 continue
             # Build template edge kernel (0/1) only inside mask
-            tpl_gray = to_gray(apply_preprocessing(tpl_s))
-            tpl_edges = cv2.Canny(tpl_gray, 30, 120)
+            tpl_gray = to_gray(tpl_s)
+            tpl_edges = cv2.Canny(tpl_gray, canny_low, canny_high)
             tpl_edges = cv2.bitwise_and(tpl_edges, tpl_edges, mask=mask_s)
             kernel = (tpl_edges > 0).astype(np.float32)
             edge_count = float(kernel.sum())
@@ -281,8 +514,8 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
                 "max_similarity": float(max_val),
                 "edge_count": int(edge_count)
             })
-            thr = 0.52 if PROFILE == "tower" else THRESHOLD
-            peaks = collect_peaks(sim, thr, tw, th, MAX_PEAKS_PER_PASS)
+            # Use similarity threshold from config
+            peaks = collect_peaks(sim, similarity_threshold, tw, th, max_peaks_per_pass, suppress_w_factor, suppress_h_factor)
             for (px, py, score) in peaks:
                 # Convert center -> top-left and clamp
                 x1_r = max(0, min(px - tw // 2, scene_gray.shape[1] - tw))
@@ -304,11 +537,11 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
                 candidates.append(
                     {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "score": score, "scale": scale, "angle": float(angle)}
                 )
-                if len(candidates) >= GLOBAL_MAX_DETECTIONS:
+                if len(candidates) >= global_max_detections:
                     break
-            if len(candidates) >= GLOBAL_MAX_DETECTIONS:
+            if len(candidates) >= global_max_detections:
                 break
-        if len(candidates) >= GLOBAL_MAX_DETECTIONS:
+        if len(candidates) >= global_max_detections:
             break
 
     debug_info["candidates_before_nms"] = int(len(candidates))
@@ -353,11 +586,9 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
     # NMS
     boxes = np.array([[c["x1"], c["y1"], c["x2"], c["y2"]] for c in candidates], dtype=np.int32)
     scores = np.array([c["score"] for c in candidates], dtype=np.float32)
-    iou_thresh = NMS_IOU_THRESHOLD_TOWER if PROFILE == "tower" else NMS_IOU_THRESHOLD
-    keep = nms_iou(boxes, scores, iou_thresh)
+    keep = nms_iou(boxes, scores, nms_iou_threshold)
     kept_all = [candidates[i] for i in keep]
     # Cluster duplicates (high IoU) and keep a single best per location
-    CLUSTER_IOU = 0.85  # duplicates if IoU >= 0.85
     def _iou(b1, b2):
         x11, y11, x12, y12 = b1
         x21, y21, x22, y22 = b2
@@ -373,12 +604,12 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
     distinct = []
     for d in kept_sorted:
         b = (int(d["x1"]), int(d["y1"]), int(d["x2"]), int(d["y2"]))
-        if all(_iou(b, (int(e["x1"]), int(e["y1"]), int(e["x2"]), int(e["y2"]))) < CLUSTER_IOU for e in distinct):
+        if all(_iou(b, (int(e["x1"]), int(e["y1"]), int(e["x2"]), int(e["y2"]))) < cluster_iou for e in distinct):
             distinct.append(d)
     # Final shortlist
     distinct_sorted = sorted(distinct, key=lambda d: d["score"], reverse=True)
-    kept = distinct_sorted[:TOP_K_AFTER_NMS]
-    debug_info["nms_iou_threshold_used"] = float(iou_thresh)
+    kept = distinct_sorted[:top_k_after_nms]
+    debug_info["nms_iou_threshold_used"] = float(nms_iou_threshold)
     debug_info["topk_cutoff_score"] = float(kept[-1]["score"]) if kept else None
     debug_info["candidates_after_nms"] = int(len(kept))
     debug_info["nms_candidates"] = [
@@ -404,22 +635,9 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
     verification_details = []
     accepted_details = []
     passed = []
-    # Verification thresholds (profile-aware)
-    if PROFILE == "tower":
-        density_max = 1.0   # disable density gating for ribbed tall object
-        template_edge_dt_max = 0.75  # relaxed to allow slightly noisier alignment
-        min_scale_tower = 0.90       # require near-true scale for towers
-        ar_tol_log = 0.10   # tight AR
-        vertical_tol_deg = 7.0
-    else:
-        density_max = 0.03
-        template_edge_dt_max = 1.5
-        min_scale_tower = None
-        ar_tol_log = 0.10
-        vertical_tol_deg = None
-    boundary_dt_max = 3.0
-    pad_ratio = 0.12
-    border_margin_verify = max(6, int(round(0.03 * min(H, W))))
+    # Verification thresholds from config (already extracted above)
+    boundary_dt_max = 3.0  # Fixed for now
+    border_margin_verify = max(6, int(round(border_margin_factor * min(H, W))))
     debug_info["verification_thresholds"] = {
         "density_max": float(density_max),
         "boundary_dt_max": float(boundary_dt_max),
@@ -437,6 +655,7 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
         ar = w / float(h)
         det_detail = {
             "box": [int(x1), int(y1), int(x2), int(y2)],
+            "size": f"{w}×{h}",
             "score": float(det.get("score", 0.0)),
             "scale": float(det.get("scale", 0.0)),
             "angle": float(det.get("angle", 0.0)),
@@ -447,7 +666,7 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
             verification_details.append(det_detail)
             continue
         if abs(np.log((ar + 1e-6) / tpl_ar)) > ar_tol_log:  # tighter ≈ ±10% tolerance
-            det_detail["reject"] = "aspect_ratio"
+            det_detail["reject"] = f"aspect_ratio ar={ar:.3f} tpl={tpl_ar:.3f} log_diff={abs(np.log((ar + 1e-6) / tpl_ar)):.3f}>{ar_tol_log:.2f}"
             verification_details.append(det_detail)
             continue
         # enlarge interior pad to ignore boundary bleed
@@ -463,7 +682,7 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
         interior = scene_edges_full[yi0:yi1, xi0:xi1]
         density = float(np.count_nonzero(interior)) / float(interior.size + 1e-6)
         if density > density_max:
-            det_detail["reject"] = f"density={density:.4f}"
+            det_detail["reject"] = f"density={density:.4f}>{density_max:.4f} (max)"
             det_detail["density"] = float(density)
             verification_details.append(det_detail)
             continue
@@ -476,9 +695,9 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
             det_detail["reject"] = "out_of_bounds"
             verification_details.append(det_detail)
             continue
-        # Tower profile: enforce minimum scale
-        if PROFILE == "tower" and (min_scale_tower is not None) and (s_used < min_scale_tower):
-            det_detail["reject"] = f"scale<{min_scale_tower:.2f}"
+        # Tower profile: enforce minimum scale (only for vertical templates, not horizontal)
+        if not is_horizontal and PROFILE == "tower" and (min_scale_tower is not None) and (s_used < min_scale_tower):
+            det_detail["reject"] = f"scale={s_used:.3f}<{min_scale_tower:.2f} (min_req, tower_vertical_only)"
             verification_details.append(det_detail)
             continue
         tpl_s = cv2.resize(template_img, (tw, th), interpolation=cv2.INTER_AREA if s_used < 1.0 else cv2.INTER_CUBIC)
@@ -495,15 +714,15 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
         dt_patch = scene_dt_full[y1:y1 + th, x1:x1 + tw]
         mean_dt_tpl = float((dt_patch * kernel).sum() / (ksum + 1e-6))
         if mean_dt_tpl > template_edge_dt_max:
-            det_detail["reject"] = f"tpl_boundary_dt={mean_dt_tpl:.2f}"
+            det_detail["reject"] = f"tpl_boundary_dt={mean_dt_tpl:.2f}>{template_edge_dt_max:.2f} (max)"
             det_detail["tpl_boundary_dt"] = float(mean_dt_tpl)
             verification_details.append(det_detail)
             continue
         det_detail["density"] = float(density)
         det_detail["tpl_boundary_dt"] = float(mean_dt_tpl)
 
-        # Verticalness check for tower profile: principal axis near vertical
-        if PROFILE == "tower" and vertical_tol_deg is not None:
+        # Verticalness check for tower profile: principal axis near vertical (only for vertical templates)
+        if not is_horizontal and PROFILE == "tower" and vertical_tol_deg is not None:
             patch_edges = scene_edges_full[y1:y2, x1:x2]
             ys, xs = np.where(patch_edges > 0)
             if xs.size >= 30:
@@ -522,7 +741,7 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
                 det_detail["principal_angle"] = angle_deg
                 det_detail["vertical_dev"] = dev_vertical
                 if dev_vertical > vertical_tol_deg:
-                    det_detail["reject"] = f"vertical={dev_vertical:.1f}°"
+                    det_detail["reject"] = f"vertical_dev={dev_vertical:.1f}°>{vertical_tol_deg:.1f}° (max, principal_angle={angle_deg:.1f}°)"
                     verification_details.append(det_detail)
                     continue
             else:
@@ -739,11 +958,29 @@ with right:
                 canvas[off_y:off_y + new_h, off_x:off_x + new_w] = thumb
                 st.image(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB), caption=f"{p.name}", width=150, use_container_width=False)
                 st.checkbox("Include", value=True, key=f"include_ref_{idx}")
+                
+                # Load and display config
+                config = load_or_create_config(p, rgba)
+                if config:
+                    det_cfg = config["detection"]
+                    ver_cfg = config["verification"]
+                    nms_cfg = config["nms"]
+                    st.markdown(f"**Config:** `{p.stem}.json`")
+                    st.table({
+                        "Threshold": det_cfg["similarity_threshold"],
+                        "Scale": f"{det_cfg.get('scale_min', 0.8):.2f}-{det_cfg.get('scale_max', 1.2):.2f}" if det_cfg.get("scale_mode") == "range" else f"Width {det_cfg.get('target_width_min', 0):.0f}-{det_cfg.get('target_width_max', 0):.0f}",
+                        "Rotations": str(det_cfg["rotations"]),
+                        "Edge DT": ver_cfg["template_edge_dt_max"],
+                        "Density": ver_cfg["density_max"],
+                        "NMS IoU": nms_cfg["iou_threshold"]
+                    })
+                else:
+                    st.warning("⚠️ Config failed to load")
 
     st.divider()
     if st.button("▶️ Process", type="primary", key="process_button"):
         with st.spinner("Running template matching..."):
-            # Build list of items: primary template + selected refs
+            # Build list of items with configs
             items = []
             palette = [(0,165,255), (0,255,255), (255,0,255), (0,255,0), (255,128,0), (128,0,255)]
             pal_idx = 0
@@ -754,39 +991,29 @@ with right:
                 rgba = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
                 if rgba is None:
                     continue
+                # Load config for this template
+                config = load_or_create_config(p, rgba)
+                if config is None:
+                    continue  # Skip if config is invalid
                 color = palette[pal_idx % len(palette)]; pal_idx += 1
-                items.append((p.name, rgba, color))
+                items.append((p.name, rgba, config, color))
 
             grouped = []
             combined = scene_bgr.copy()
             debug_info = None
-            def prepare_template(rgba_img):
-                tpl_bgr_c, tpl_mask_c = build_template_from_png(rgba_img)
-                h, w = tpl_bgr_c.shape[:2]
-                # Horizontal heuristic: filename contains "horiz" or w >= h → rotate 90°
-                return tpl_bgr_c, tpl_mask_c, (h, w)
 
-            for name, rgba, color in items:
-                tpl_bgr_c, tpl_mask_c, (th, tw) = prepare_template(rgba)
-                name_l = name.lower()
-                is_horizontal = ("horiz" in name_l) or (tw >= th)
-                if is_horizontal:
-                    # Rotate template 90° to align with search assuming vertical-ish rotations remain [-5,0,5]
-                    tpl_bgr_c = cv2.rotate(tpl_bgr_c, cv2.ROTATE_90_CLOCKWISE)
-                    tpl_mask_c = cv2.rotate(tpl_mask_c, cv2.ROTATE_90_CLOCKWISE)
-                tpl_w = max(1, tpl_bgr_c.shape[1])
-                if PROFILE == "tower":
-                    tgt_min_w, tgt_max_w = 38.0, 72.0
-                else:
-                    tgt_min_w, tgt_max_w = 100.0, 150.0
-                lower_scale = max(0.03, tgt_min_w / float(tpl_w))
-                upper_scale = min(1.50, tgt_max_w / float(tpl_w))
-                runtime_scales = np.linspace(lower_scale, upper_scale, 21).tolist()
-                annotated_i, detections_i, debug_i = match_multiscale(scene_bgr, tpl_bgr_c, tpl_mask_c, scales=runtime_scales)
-                grouped.append({"name": name, "detections": detections_i, "debug": debug_i, "color": color})
+            for name, rgba, config, color in items:
+                tpl_bgr_c, tpl_mask_c = build_template_from_png(rgba)
+                
+                # Run detection with config
+                annotated_i, detections_i, debug_i = match_multiscale(
+                    scene_bgr, tpl_bgr_c, tpl_mask_c, config
+                )
+
+                grouped.append({"name": name, "detections": detections_i, "debug": debug_i or {}, "color": color, "config": config})
                 combined = draw_detections(combined, detections_i, color, name)
                 if debug_info is None:
-                    debug_info = debug_i
+                    debug_info = debug_i or {}
 
         total = sum(len(g["detections"]) for g in grouped)
         st.success(f"Found {total} match(es) after NMS across {len(grouped)} template(s).")

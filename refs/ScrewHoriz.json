@@ -1,0 +1,113 @@
+{
+  "_comment": "Configuration for ScrewHoriz.png (305x54 horizontal screw)",
+  "version": "1.0",
+  "template_name": "ScrewHoriz",
+  "description": "Horizontal screw/fastener - wide profile with mounting holes",
+  
+  "detection": {
+    "_comment_similarity_threshold": "Minimum similarity score (0-1) to accept as candidate. Higher for horizontal to reject text/dimension lines. Lower = more permissive.",
+    "similarity_threshold": 0.70,
+    
+    "_comment_scale_mode": "Mode for scale calculation: 'range' (fixed min/max) or 'target_width' (compute from template width)",
+    "scale_mode": "range",
+    
+    "_comment_scale_range": "Used when scale_mode='range'. Search near native size (0.8-1.2 = ±20%) for life-size detection.",
+    "scale_min": 0.80,
+    "scale_max": 1.20,
+    
+    "_comment_target_width": "Used when scale_mode='target_width'. Not used for horizontal (uses scale_range instead).",
+    "target_width_min": 100.0,
+    "target_width_max": 400.0,
+    
+    "_comment_scale_steps": "Number of scale steps to search. More = finer search but slower. Typical: 15-25.",
+    "scale_steps": 21,
+    
+    "_comment_rotations": "Rotation angles (degrees) to search. [0] = no rotation for pure horizontal. Use [-10,0,10] for slight skew tolerance.",
+    "rotations": [0],
+    
+    "_comment_max_peaks_per_pass": "Max candidate peaks to extract per scale/angle pass. Lower for horizontal to reduce false positives.",
+    "max_peaks_per_pass": 10,
+    
+    "_comment_global_max_detections": "Absolute max candidates to collect across all passes before NMS. Safety cap.",
+    "global_max_detections": 150
+  },
+  
+  "verification": {
+    "_comment_density_max": "Max edge density allowed inside detection box (0-1). Lower rejects busy/text regions. 0.03 = very clean interior required.",
+    "density_max": 0.03,
+    
+    "_comment_template_edge_dt_max": "Max mean distance transform for template edges in candidate box. Very tight (0.50) for horizontal to reject false matches.",
+    "template_edge_dt_max": 0.50,
+    
+    "_comment_aspect_ratio_tolerance_log": "Log-space tolerance for aspect ratio matching. 0.08 ≈ ±8%. Tighter than vertical to reject distorted text/lines.",
+    "aspect_ratio_tolerance_log": 0.08,
+    
+    "_comment_min_scale": "Minimum scale required to accept detection. null = no limit (horizontal uses full scale_range).",
+    "min_scale": null,
+    
+    "_comment_vertical_tolerance_deg": "Max deviation (degrees) from vertical. null = disabled (not applicable for horizontal templates).",
+    "vertical_tolerance_deg": null,
+    
+    "_comment_border_margin_factor": "Fraction of image size (0-1) to define border exclusion zone. Detections touching border rejected. Typical: 0.03 = 3%.",
+    "border_margin_factor": 0.03,
+    
+    "_comment_pad_ratio": "Interior padding ratio (0-1) for density check. Pads inward from box edges to ignore boundary bleed. Typical: 0.10-0.15.",
+    "pad_ratio": 0.12
+  },
+  
+  "nms": {
+    "_comment_iou_threshold": "IoU threshold for Non-Maximum Suppression. 0.85 = moderate overlap allowed. Lower = more aggressive suppression.",
+    "iou_threshold": 0.85,
+    
+    "_comment_cluster_iou": "IoU threshold for clustering near-duplicate detections after NMS. Groups overlapping boxes and picks best representative.",
+    "cluster_iou": 0.85,
+    
+    "_comment_top_k_after_nms": "Max detections to keep after NMS. Top K by score. Typical: 5-20.",
+    "top_k_after_nms": 15,
+    
+    "_comment_suppress_factors": "Custom suppression box scaling for NMS. 1.0 = use detection box as-is (standard NMS for horizontal).",
+    "suppress_w_factor": 1.0,
+    "suppress_h_factor": 1.0
+  },
+  
+  "preprocessing": {
+    "_comment_canny_low": "Canny edge detector low threshold. Lower = more edges (noisy). Typical: 30-50.",
+    "canny_low": 30,
+    
+    "_comment_canny_high": "Canny edge detector high threshold. Higher = fewer edges (clean). Typical: 100-150. Ratio high:low should be 2:1 to 3:1.",
+    "canny_high": 120,
+    
+    "_comment_gaussian_blur": "Gaussian blur kernel size (odd integer). 0 = no blur. Blur reduces noise but loses fine detail. Typical: 0, 3, or 5.",
+    "gaussian_blur": 0,
+    
+    "_comment_clahe_enabled": "Enable CLAHE (Contrast Limited Adaptive Histogram Equalization) for local contrast enhancement. Good for low-contrast images.",
+    "clahe_enabled": false,
+    
+    "_comment_clahe_clip_limit": "CLAHE clip limit. Higher = more contrast enhancement. Typical: 2.0-4.0.",
+    "clahe_clip_limit": 2.0,
+    
+    "_comment_clahe_grid_size": "CLAHE tile grid size (width, height). Smaller = more local enhancement. Typical: (8,8).",
+    "clahe_grid_size": [8, 8]
+  },
+  
+  "advanced": {
+    "_comment_profile": "Detection profile name. 'horizontal' disables vertical-specific gates. 'tower' for vertical.",
+    "profile": "horizontal",
+    
+    "_comment_is_horizontal": "Template orientation flag. true = horizontal (wide), false = vertical (tall). Auto-detected from filename 'horiz' or dimensions.",
+    "is_horizontal": true,
+    
+    "_comment_scene_max_width": "Max width to downscale scene image. 0 = no downscaling (full resolution). Larger = slower but more accurate.",
+    "scene_max_width": 0,
+    
+    "_comment_distance_transform_type": "Distance transform metric. 'L2' = Euclidean (accurate), 'L1' = Manhattan (faster).",
+    "distance_transform_type": "L2",
+    
+    "_comment_interpolation_upscale": "Interpolation for upscaling template. 'CUBIC' = smooth, 'LINEAR' = faster, 'LANCZOS4' = best quality.",
+    "interpolation_upscale": "CUBIC",
+    
+    "_comment_interpolation_downscale": "Interpolation for downscaling template. 'AREA' = best for shrinking, 'LINEAR' = faster.",
+    "interpolation_downscale": "AREA"
+  }
+}
+
