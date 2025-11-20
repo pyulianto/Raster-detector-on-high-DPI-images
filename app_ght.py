@@ -464,13 +464,28 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
     H_full, W_full = scene_gray.shape[:2]
     border_margin = max(6, int(round(border_margin_factor * min(H_full, W_full))))
     for angle in rotations:
-        # Rotate template if needed (rare for black/white symbols)
+        # Rotate template if needed
         if angle != 0:
             (h, w) = template_img.shape[:2]
-            center = (w // 2, h // 2)
-            rot_m = cv2.getRotationMatrix2D(center, angle, 1.0)
-            tpl_rot = cv2.warpAffine(template_img, rot_m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=255)
-            mask_rot = cv2.warpAffine(template_mask, rot_m, (w, h), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            # For 90° rotations, swap canvas dimensions
+            abs_angle = abs(angle) % 360
+            if abs_angle == 90 or abs_angle == 270:
+                # Swap dimensions for 90° rotation
+                new_w, new_h = h, w
+                # For 90° rotation, center should be at (h/2, w/2) in original coordinates
+                # After rotation, the center in new canvas is at (new_w/2, new_h/2)
+                center = (w / 2.0, h / 2.0)
+                rot_m = cv2.getRotationMatrix2D(center, angle, 1.0)
+                # Adjust translation for new canvas size: shift to center of new canvas
+                rot_m[0, 2] += (new_w - w) / 2.0
+                rot_m[1, 2] += (new_h - h) / 2.0
+            else:
+                # Keep original dimensions for small rotations
+                new_w, new_h = w, h
+                center = (w / 2.0, h / 2.0)
+                rot_m = cv2.getRotationMatrix2D(center, angle, 1.0)
+            tpl_rot = cv2.warpAffine(template_img, rot_m, (new_w, new_h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=255)
+            mask_rot = cv2.warpAffine(template_mask, rot_m, (new_w, new_h), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
         else:
             tpl_rot = template_img
             mask_rot = template_mask
@@ -626,6 +641,9 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
     # 1) Aspect ratio near the template's aspect
     # 2) Low interior edge density (triangle interior should be mostly blank)
     # 3) Boundary alignment via DT (edges near scene edges)
+    # Note: aspect ratio should be width/height of the DETECTION BOX
+    # For detection boxes, we compare against the template's aspect ratio
+    # When template is rotated 90°/270°, dimensions are swapped
     tpl_ar = max(1e-6, template_img.shape[1] / float(template_img.shape[0]))
     # Recompute edges/DT in case we are in a new scope
     scene_gray_full = scene_gray
@@ -654,20 +672,29 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
         w = max(1, x2 - x1)
         h = max(1, y2 - y1)
         ar = w / float(h)
+        det_angle = float(det.get("angle", 0.0))
+        # Adjust expected template aspect ratio based on rotation
+        abs_angle = abs(det_angle) % 360
+        if abs_angle == 90 or abs_angle == 270:
+            # For 90°/270° rotations, swap template dimensions
+            tpl_ar_check = max(1e-6, template_img.shape[0] / float(template_img.shape[1]))
+        else:
+            # For 0° or small rotations, use original aspect ratio
+            tpl_ar_check = tpl_ar
         det_detail = {
             "box": [int(x1), int(y1), int(x2), int(y2)],
             "size": f"{w}×{h}",
             "score": float(det.get("score", 0.0)),
             "scale": float(det.get("scale", 0.0)),
-            "angle": float(det.get("angle", 0.0)),
+            "angle": det_angle,
         }
         # Border margin gate during verification as well
         if x1 < border_margin_verify or y1 < border_margin_verify or x2 > W - border_margin_verify or y2 > H - border_margin_verify:
             det_detail["reject"] = "border_margin"
             verification_details.append(det_detail)
             continue
-        if abs(np.log((ar + 1e-6) / tpl_ar)) > ar_tol_log:  # tighter ≈ ±10% tolerance
-            det_detail["reject"] = f"aspect_ratio ar={ar:.3f} tpl={tpl_ar:.3f} log_diff={abs(np.log((ar + 1e-6) / tpl_ar)):.3f}>{ar_tol_log:.2f}"
+        if abs(np.log((ar + 1e-6) / tpl_ar_check)) > ar_tol_log:  # tighter ≈ ±10% tolerance
+            det_detail["reject"] = f"aspect_ratio ar={ar:.3f} tpl={tpl_ar_check:.3f} log_diff={abs(np.log((ar + 1e-6) / tpl_ar_check)):.3f}>{ar_tol_log:.2f}"
             verification_details.append(det_detail)
             continue
         # enlarge interior pad to ignore boundary bleed
@@ -697,7 +724,7 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
             verification_details.append(det_detail)
             continue
         # Tower profile: enforce minimum scale (only for vertical templates, not horizontal)
-        if not is_horizontal and PROFILE == "tower" and (min_scale_tower is not None) and (s_used < min_scale_tower):
+        if not is_horizontal and profile == "tower" and (min_scale_tower is not None) and (s_used < min_scale_tower):
             det_detail["reject"] = f"scale={s_used:.3f}<{min_scale_tower:.2f} (min_req, tower_vertical_only)"
             verification_details.append(det_detail)
             continue
@@ -723,7 +750,7 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
         det_detail["tpl_boundary_dt"] = float(mean_dt_tpl)
 
         # Verticalness check for tower profile: principal axis near vertical (only for vertical templates)
-        if not is_horizontal and PROFILE == "tower" and vertical_tol_deg is not None:
+        if not is_horizontal and profile == "tower" and vertical_tol_deg is not None:
             patch_edges = scene_edges_full[y1:y2, x1:x2]
             ys, xs = np.where(patch_edges > 0)
             if xs.size >= 30:
@@ -1006,10 +1033,47 @@ with right:
             for name, rgba, config, color in items:
                 tpl_bgr_c, tpl_mask_c = build_template_from_png(rgba)
                 
-                # Run detection with config
-                annotated_i, detections_i, debug_i = match_multiscale(
-                    scene_bgr, tpl_bgr_c, tpl_mask_c, config
-                )
+                # Check if we should split rotations into separate batches
+                rotations = config["detection"].get("rotations", [0])
+                split_rotations = len(rotations) > 1
+                
+                if split_rotations:
+                    # Run detection separately for each rotation and combine results
+                    all_detections = []
+                    all_debug_info = []
+                    for rot_angle in rotations:
+                        # Create a config copy with single rotation
+                        rot_config = config.copy()
+                        rot_config["detection"] = config["detection"].copy()
+                        rot_config["detection"]["rotations"] = [rot_angle]
+                        
+                        # Run detection for this rotation
+                        annotated_rot, detections_rot, debug_rot = match_multiscale(
+                            scene_bgr, tpl_bgr_c, tpl_mask_c, rot_config
+                        )
+                        
+                        all_detections.extend(detections_rot)
+                        if debug_rot:
+                            all_debug_info.append(debug_rot)
+                    
+                    # Combine debug info (use first one as primary)
+                    combined_debug = all_debug_info[0] if all_debug_info else {}
+                    if len(all_debug_info) > 1:
+                        # Merge passes from all rotations
+                        combined_passes = []
+                        for dbg in all_debug_info:
+                            combined_passes.extend(dbg.get("passes", []))
+                        combined_debug["passes"] = combined_passes
+                        # Merge other debug info
+                        combined_debug["candidates_before_nms"] = sum(dbg.get("candidates_before_nms", 0) for dbg in all_debug_info)
+                    
+                    detections_i = all_detections
+                    debug_i = combined_debug
+                else:
+                    # Run detection normally (single rotation or no rotation)
+                    annotated_i, detections_i, debug_i = match_multiscale(
+                        scene_bgr, tpl_bgr_c, tpl_mask_c, config
+                    )
 
                 grouped.append({"name": name, "detections": detections_i, "debug": debug_i or {}, "color": color, "config": config})
                 combined = draw_detections(combined, detections_i, color, name)

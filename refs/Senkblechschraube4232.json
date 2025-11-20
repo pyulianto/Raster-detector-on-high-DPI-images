@@ -1,0 +1,57 @@
+{
+  "_comment": "Configuration for Senkblechschraube4232.png - countersunk sheet metal screw with conical head",
+  "version": "1.0",
+  "template_name": "Senkblechschraube4232",
+  "description": "Countersunk sheet metal screw with conical head and threaded shaft - designed to detect both vertical and horizontal orientations",
+  "detection": {
+    "similarity_threshold": 0.50,
+    "scale_mode": "range",
+    "scale_min": 0.85,
+    "scale_max": 1.15,
+    "target_width_min": 100.0,
+    "target_width_max": 400.0,
+    "scale_steps": 16,
+    "rotations": [
+      0,
+      -90
+    ],
+    "max_peaks_per_pass": 20,
+    "global_max_detections": 300
+  },
+  "verification": {
+    "density_max": 0.32,
+    "template_edge_dt_max": 2.0,
+    "aspect_ratio_tolerance_log": 0.20,
+    "min_scale": null,
+    "vertical_tolerance_deg": null,
+    "border_margin_factor": 0.03,
+    "pad_ratio": 0.12
+  },
+  "nms": {
+    "iou_threshold": 0.75,
+    "cluster_iou": 0.75,
+    "top_k_after_nms": 50,
+    "suppress_w_factor": 1.0,
+    "suppress_h_factor": 1.0
+  },
+  "preprocessing": {
+    "canny_low": 30,
+    "canny_high": 120,
+    "gaussian_blur": 0,
+    "clahe_enabled": false,
+    "clahe_clip_limit": 2.0,
+    "clahe_grid_size": [
+      8,
+      8
+    ]
+  },
+  "advanced": {
+    "profile": "multi_orientation",
+    "is_horizontal": false,
+    "scene_max_width": 0,
+    "distance_transform_type": "L2",
+    "interpolation_upscale": "CUBIC",
+    "interpolation_downscale": "AREA"
+  }
+}
+
