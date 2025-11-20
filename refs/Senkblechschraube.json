@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "template_name": "Senkblechschraube",
+  "description": "Vertical countersunk sheet metal screw - tall profile with pointed top",
+  "detection": {
+    "similarity_threshold": 0.80,
+    "scale_mode": "range",
+    "scale_min": 0.5,
+    "scale_max": 2.0,
+    "target_width_min": 45.0,
+    "target_width_max": 55.0,
+    "scale_steps": 31,
+    "rotations": [
+      0
+    ],
+    "max_peaks_per_pass": 12,
+    "global_max_detections": 150
+  },
+  "verification": {
+    "density_max": 0.40,
+    "template_edge_dt_max": 0.75,
+    "aspect_ratio_tolerance_log": 0.1,
+    "min_scale": null,
+    "vertical_tolerance_deg": 7.0,
+    "border_margin_factor": 0.03,
+    "pad_ratio": 0.12
+  },
+  "nms": {
+    "iou_threshold": 0.97,
+    "cluster_iou": 0.85,
+    "top_k_after_nms": 15,
+    "suppress_w_factor": 0.6,
+    "suppress_h_factor": 0.5
+  },
+  "preprocessing": {
+    "canny_low": 30,
+    "canny_high": 120,
+    "gaussian_blur": 0,
+    "clahe_enabled": false,
+    "clahe_clip_limit": 2.0,
+    "clahe_grid_size": [
+      8,
+      8
+    ]
+  },
+  "advanced": {
+    "profile": "tower",
+    "is_horizontal": false,
+    "scene_max_width": 0,
+    "distance_transform_type": "L2",
+    "interpolation_upscale": "CUBIC",
+    "interpolation_downscale": "AREA"
+  }
+}
+

@@ -1,0 +1,54 @@
+{
+  "version": "1.0",
+  "template_name": "SenkblechschraubeHorizReversed",
+  "description": "Horizontal template 65\u00d733px (auto-generated)",
+  "detection": {
+    "similarity_threshold": 0.7,
+    "scale_mode": "range",
+    "scale_min": 0.8,
+    "scale_max": 1.2,
+    "target_width_min": 100.0,
+    "target_width_max": 400.0,
+    "scale_steps": 21,
+    "rotations": [
+      0
+    ],
+    "max_peaks_per_pass": 10,
+    "global_max_detections": 150
+  },
+  "verification": {
+    "density_max": 0.32,
+    "template_edge_dt_max": 0.5,
+    "aspect_ratio_tolerance_log": 0.08,
+    "min_scale": null,
+    "vertical_tolerance_deg": null,
+    "border_margin_factor": 0.03,
+    "pad_ratio": 0.12
+  },
+  "nms": {
+    "iou_threshold": 0.85,
+    "cluster_iou": 0.85,
+    "top_k_after_nms": 15,
+    "suppress_w_factor": 1.0,
+    "suppress_h_factor": 1.0
+  },
+  "preprocessing": {
+    "canny_low": 30,
+    "canny_high": 120,
+    "gaussian_blur": 0,
+    "clahe_enabled": false,
+    "clahe_clip_limit": 2.0,
+    "clahe_grid_size": [
+      8,
+      8
+    ]
+  },
+  "advanced": {
+    "profile": "horizontal",
+    "is_horizontal": true,
+    "scene_max_width": 0,
+    "distance_transform_type": "L2",
+    "interpolation_upscale": "CUBIC",
+    "interpolation_downscale": "AREA"
+  }
+}

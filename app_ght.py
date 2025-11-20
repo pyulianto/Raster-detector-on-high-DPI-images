@@ -639,6 +639,7 @@ def match_multiscale(scene_img: np.ndarray, template_img: np.ndarray, template_m
     boundary_dt_max = 3.0  # Fixed for now
     border_margin_verify = max(6, int(round(border_margin_factor * min(H, W))))
     debug_info["verification_thresholds"] = {
+        "similarity_threshold": float(similarity_threshold),
         "density_max": float(density_max),
         "boundary_dt_max": float(boundary_dt_max),
         "template_edge_dt_max": float(template_edge_dt_max),
@@ -957,7 +958,7 @@ with right:
                 off_y = (150 - new_h) // 2
                 canvas[off_y:off_y + new_h, off_x:off_x + new_w] = thumb
                 st.image(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB), caption=f"{p.name}", width=150, use_container_width=False)
-                st.checkbox("Include", value=True, key=f"include_ref_{idx}")
+                st.checkbox("Include", value=False, key=f"include_ref_{idx}")
                 
                 # Load and display config
                 config = load_or_create_config(p, rgba)
