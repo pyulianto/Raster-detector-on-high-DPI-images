@@ -1007,8 +1007,23 @@ with right:
 
     st.divider()
     if st.button("▶️ Process", type="primary", key="process_button"):
-        with st.spinner("Running template matching..."):
-            # Build list of items with configs
+        # Create progress bar and scrolling status log
+        progress_bar = st.progress(0)
+        status_log_container = st.empty()
+        status_log = []
+        update_counter = [0]  # Use list to avoid nonlocal issues
+        
+        def update_status(message: str):
+            """Append a message to the status log and update the textbox"""
+            status_log.append(message)
+            update_counter[0] += 1
+            # Use unique key based on update counter to avoid duplicate key errors
+            status_log_container.text_area("Progress Log", value="\n".join(status_log), height=200, disabled=True, key=f"progress_log_{update_counter[0]}")
+        
+        try:
+            # Step 1: Build list of items with configs
+            update_status("📋 Step 1/4: Loading templates and configurations...")
+            progress_bar.progress(0.1)
             items = []
             palette = [(0,165,255), (0,255,255), (255,0,255), (0,255,0), (255,128,0), (128,0,255)]
             pal_idx = 0
@@ -1026,11 +1041,22 @@ with right:
                 color = palette[pal_idx % len(palette)]; pal_idx += 1
                 items.append((p.name, rgba, config, color))
 
+            if not items:
+                update_status("⚠️ No templates selected for processing.")
+                progress_bar.progress(1.0)
+                st.stop()
+
+            # Step 2: Process each template
             grouped = []
             combined = scene_bgr.copy()
             debug_info = None
-
-            for name, rgba, config, color in items:
+            total_templates = len(items)
+            
+            for template_idx, (name, rgba, config, color) in enumerate(items):
+                progress_pct = 0.2 + (template_idx / total_templates) * 0.7
+                update_status(f"🔍 Step 2/4: Processing template {template_idx + 1}/{total_templates}: {name}...")
+                progress_bar.progress(progress_pct)
+                
                 tpl_bgr_c, tpl_mask_c = build_template_from_png(rgba)
                 
                 # Check if we should split rotations into separate batches
@@ -1041,7 +1067,12 @@ with right:
                     # Run detection separately for each rotation and combine results
                     all_detections = []
                     all_debug_info = []
-                    for rot_angle in rotations:
+                    total_rotations = len(rotations)
+                    for rot_idx, rot_angle in enumerate(rotations):
+                        rot_progress = progress_pct + (rot_idx / total_rotations) * (0.7 / total_templates)
+                        update_status(f"🔄 Processing {name} at {rot_angle}° rotation ({rot_idx + 1}/{total_rotations})...")
+                        progress_bar.progress(rot_progress)
+                        
                         # Create a config copy with single rotation
                         rot_config = config.copy()
                         rot_config["detection"] = config["detection"].copy()
@@ -1055,6 +1086,9 @@ with right:
                         all_detections.extend(detections_rot)
                         if debug_rot:
                             all_debug_info.append(debug_rot)
+                        
+                        # Update status with detection count
+                        update_status(f"✅ {name} at {rot_angle}°: Found {len(detections_rot)} detection(s)")
                     
                     # Combine debug info (use first one as primary)
                     combined_debug = all_debug_info[0] if all_debug_info else {}
@@ -1069,16 +1103,36 @@ with right:
                     
                     detections_i = all_detections
                     debug_i = combined_debug
+                    
+                    # Update status with combined detection count
+                    update_status(f"✅ {name}: Combined {len(detections_i)} detection(s) from {total_rotations} rotation(s)")
                 else:
                     # Run detection normally (single rotation or no rotation)
+                    update_status(f"🔍 Running detection for {name}...")
                     annotated_i, detections_i, debug_i = match_multiscale(
                         scene_bgr, tpl_bgr_c, tpl_mask_c, config
                     )
+                    # Update status with detection count
+                    update_status(f"✅ {name}: Found {len(detections_i)} detection(s)")
 
                 grouped.append({"name": name, "detections": detections_i, "debug": debug_i or {}, "color": color, "config": config})
                 combined = draw_detections(combined, detections_i, color, name)
                 if debug_info is None:
                     debug_info = debug_i or {}
+            
+            # Step 3: Finalize results
+            total_detections = sum(len(g["detections"]) for g in grouped)
+            update_status(f"✅ Step 3/4: Finalizing results... ({total_detections} total detection(s) across {total_templates} template(s))")
+            progress_bar.progress(0.9)
+            
+            # Step 4: Complete
+            update_status(f"✅ Step 4/4: Complete! Found {total_detections} detection(s) in total")
+            progress_bar.progress(1.0)
+            
+        except Exception as e:
+            update_status(f"❌ Error during processing: {e}")
+            progress_bar.progress(1.0)
+            raise
 
         total = sum(len(g["detections"]) for g in grouped)
         st.success(f"Found {total} match(es) after NMS across {len(grouped)} template(s).")
